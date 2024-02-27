@@ -1,4 +1,4 @@
-import json, os
+import json, os, pickle
 import pandas as pd
 import numpy as np
 import sklearn.cluster
@@ -7,7 +7,7 @@ from InstructorEmbedding import INSTRUCTOR
 """
 This script will 
 - read the manually transcribed ground truth file
-- embed each row using model "hkunlp/instructor-xl" --- see https://huggingface.co/hkunlp/instructor-large
+- embed each row using model "hkunlp/instructor-large" --- see https://huggingface.co/hkunlp/instructor-large
 - use kmeans clustering to find the most dissimilar rows
 - save each row as a json object, a dictionary fomatted like this:
         {
@@ -36,38 +36,78 @@ This script will
 - these .json files can then be used with the evaluate_LLM_predictions.py methods as a benchmark
 
 """
-def create_clustered_samples(input_csv, output_csv, n_clusters, model_name="hkunlp/instructor-xl"):
+def validate_dir(dir):
+    if not os.path.exists(dir):
+        os.makedirs(dir, exist_ok=True)
+
+# Function to find median and extreme sample
+def find_samples(group, clustering_model):
+    # Median
+    median_idx = group['embedding'].median()
+    median_sample = group.iloc[(group['embedding'] - median_idx).abs().argsort()[:1]]
+
+    # Most extreme (farthest from centroid)
+    centroid = clustering_model.cluster_centers_[group.name]
+    distances = np.linalg.norm(group['embedding'].to_list() - centroid, axis=1)
+    extreme_sample = group.iloc[np.argmax(distances)]
+
+    return pd.concat([median_sample, extreme_sample])
+
+def create_clustered_samples(project_name, input_csv, output_csv, n_clusters, dir_embeddings, model_name="hkunlp/instructor-large"):
+    validate_dir(dir_embeddings)
+    # Ensure n_clusters is even
+    if n_clusters % 2 != 0:
+        n_clusters += 1  # Increment to make even
+        print(f"Number of clusters (sample size) adjusted to {n_clusters} to ensure it is even.")
+
     # Load model
-    model = INSTRUCTOR(model_name, device="cuda")#"cuda") # TODO
-    instruction = "Represent the Science json dictionary document: "
+    model = INSTRUCTOR(model_name, device="cuda") # TODO: ensure the correct device is used
 
-    # Load your csv data into a pandas dataframe
+    # Load CSV data into a pandas DataFrame
     df = pd.read_csv(input_csv)
+    df = df.fillna('')  # Fill NaN values
 
-    # Fill NaN values with an empty string
-    df = df.fillna('')
+    # Check if embeddings file exists
+    fname_embeddings = '.'.join([project_name,'pkl'])
+    path_embeddings = os.path.join(dir_embeddings, fname_embeddings)
+    if os.path.exists(path_embeddings):
+        # Load sentences & embeddings from disk
+        with open(path_embeddings, "rb") as fIn:
+            stored_data = pickle.load(fIn)
+            sentences = stored_data['sentences']
+            embeddings = stored_data['embeddings']
+        print(f"Loaded embeddings from file {path_embeddings}")
+    else:
+        # Generate sentences for clustering
+        sentences = []
+        instruction = "Represent the Science json dictionary document: "
+        for row in df.itertuples():
+            csv_row = ','.join(str(i) for i in row[1:])
+            sentences.append([instruction, csv_row])
 
-    # Generate sentences for clustering
-    sentences = []
-    for row in df.itertuples():
-        csv_row = ','.join(str(i) for i in row[1:]) # Convert row to CSV string, ignore the first element (index)
-        sentences.append([instruction, csv_row])
+        # Generate embeddings
+        print("Encoding rows")
+        embeddings = model.encode(sentences, batch_size=48, show_progress_bar=True)
 
-    # Generate embeddings for each sentence
-    print("Encoding rows")
-    embeddings = model.encode(sentences, batch_size=24)
+        # Store sentences & embeddings on disk
+        with open(path_embeddings, "wb") as fOut:
+            pickle.dump({'sentences': sentences, 'embeddings': embeddings}, fOut, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Saved embeddings to file {path_embeddings}")
 
     # Apply MiniBatchKMeans clustering
-    clustering_model = sklearn.cluster.MiniBatchKMeans(n_clusters=n_clusters)
+    n_clusters_half = int(n_clusters / 2)
+    clustering_model = sklearn.cluster.MiniBatchKMeans(n_clusters=n_clusters_half, random_state=2023)
     clustering_model.fit(embeddings)
     cluster_assignment = clustering_model.labels_
 
     # Add the cluster labels to the original DataFrame
     df['cluster'] = cluster_assignment
 
-    # Sample one row from each cluster
-    seed = 2023 # Set your seed value
-    sample_df = df.groupby('cluster').apply(lambda x: x.sample(1, random_state=seed))
+    # Add embeddings to DataFrame for processing
+    df['embedding'] = list(embeddings)
+
+    # Sample median and extreme rows from each cluster
+    sample_df = df.groupby('cluster').apply(find_samples).reset_index(drop=True)
 
     # Save the sampled dataframe to a csv file
     sample_df.to_csv(output_csv, index=False)
@@ -172,8 +212,9 @@ def create_benchmark_dataset():
     file_in = os.path.join(project_dir, 'candidates',f"{project_name}_CANDIDATES.csv")
     out_dir = os.path.join(project_dir, 'selected')
 
-    file_out = os.path.join(out_dir, f"{project_name}.csv")
-    create_clustered_samples(file_in, file_out, sample_size)
+    file_out = os.path.join(out_dir, f"{project_name}_TESTTT.csv")
+    dir_embeddings = out_dir = os.path.join(project_dir, 'selected', 'embeddings')
+    create_clustered_samples(project_name, file_in, file_out, sample_size, dir_embeddings)
     save_rows_as_json(file_out, project_name, os.path.join(out_dir, project_name))
 
 if __name__ == '__main__':

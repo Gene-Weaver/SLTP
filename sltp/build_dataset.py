@@ -331,7 +331,7 @@ if __name__ == '__main__':
     # herbarium_version = '/home/brlab/Dropbox/LM2_Env/Image_Datasets/GBIF_Ingest/GBIF/occurrence.txt'
     # scripted_version_txt_shuffle = '/home/brlab/data/HLT_Datasets/GBIF_DwC-random_order/scripted_HLT-GBIF-DwC-random-order.csv' # (new file)
     # create_and_push_dataset(herbarium_version, scripted_version_txt_shuffle, "HLT-GBIF-DwC-random-order", 'txt_shuffle_cells')
-    push_dataset_from_scripted_csv(scripted_version_txt_shuffle, "HLT-GBIF-DwC-random-order")
+    # push_dataset_from_scripted_csv(scripted_version_txt_shuffle, "HLT-GBIF-DwC-random-order")
 # 
     '''BENCHMARK MICH 50'''
     bench_mich_50 = '' # (new file)

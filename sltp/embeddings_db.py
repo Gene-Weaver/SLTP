@@ -177,7 +177,7 @@ class VoucherVisionEmbedding:
 
 
 class VoucherVisionEmbeddingTest:
-    def __init__(self, ground_truth_dir, llm_output_dir, model_name="hkunlp/instructor-xl"):
+    def __init__(self, ground_truth_dir, llm_output_dir, model_name="hkunlp/instructor-large"):
         self.ground_truth_dir = ground_truth_dir
         self.llm_output_dir = llm_output_dir
         self.model_name = model_name
